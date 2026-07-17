@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: budongsan-map
+    runtime: python
+    plan: free
+    buildCommand: ""
+    startCommand: python scripts/server.py
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: WALK_LIMIT_MIN
+        value: "15"
+      - key: TMAP_APP_KEY
+        sync: false
+      - key: APP_PASSWORD
+        sync: false

@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>내 조건 매물 지도</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; font-family:-apple-system,"Malgun Gothic",sans-serif; }
+  #wrap { display:flex; height:100vh; }
+  #side { width:380px; display:flex; flex-direction:column; border-right:1px solid #e5e7eb; background:#fafafa; }
+  #map { flex:1; }
+  header { padding:12px 14px; border-bottom:1px solid #e5e7eb; background:#fff; }
+  header h1 { font-size:15px; margin:0 0 8px; }
+  textarea { width:100%; height:120px; resize:vertical; font-size:12px; padding:8px; border:1px solid #d1d5db; border-radius:6px; }
+  .filters { display:flex; gap:6px; margin:8px 0; flex-wrap:wrap; }
+  .filters label { font-size:11px; color:#374151; display:flex; flex-direction:column; gap:2px; }
+  .filters input { width:72px; padding:4px 6px; border:1px solid #d1d5db; border-radius:5px; font-size:12px; }
+  button { width:100%; padding:9px; background:#4f46e5; color:#fff; border:0; border-radius:6px; font-size:13px; font-weight:700; cursor:pointer; }
+  button:disabled { background:#9ca3af; }
+  .legend { display:flex; gap:10px; margin-top:8px; font-size:11px; }
+  .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:4px; vertical-align:middle; }
+  #list { flex:1; overflow-y:auto; }
+  .sec { font-size:11px; font-weight:700; color:#6b7280; padding:8px 14px 4px; background:#f3f4f6; }
+  .card { padding:11px 14px; border-bottom:1px solid #eee; cursor:pointer; }
+  .card:hover { background:#f3f4f6; } .card.active { background:#eef2ff; }
+  .card .nm { font-weight:700; font-size:13px; margin-bottom:3px; }
+  .card .row { font-size:11.5px; color:#374151; margin:1px 0; }
+  .badge { font-size:10px; padding:2px 6px; border-radius:9px; color:#fff; }
+  .b-통과 { background:#16a34a; } .b-재검토 { background:#f59e0b; }
+  .b-제외 { background:#9ca3af; } .b-확인필요 { background:#6366f1; }
+  .reason { font-size:11px; color:#b45309; margin-top:2px; }
+  .marker-pin { width:24px; height:24px; border-radius:50% 50% 50% 0; transform:rotate(-45deg);
+    border:2px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,.4); }
+  .marker-pin span { transform:rotate(45deg); display:block; text-align:center; color:#fff; font-size:11px; font-weight:700; line-height:20px; }
+  .status-msg { font-size:12px; color:#6b7280; padding:10px 14px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="side">
+    <header>
+      <h1>내 조건 매물 지도</h1>
+      <textarea id="input" placeholder="카카오톡 매물 목록을 그대로 붙여넣으세요."></textarea>
+      <div class="filters">
+        <label>전세가 상한(만원)<input id="dep" type="number" value="15000"></label>
+        <label>관리비 상한(만원)<input id="mgmt" type="number" value="10"></label>
+        <label>도보 한도(분)<input id="walk" type="number" value="15"></label>
+      </div>
+      <button id="run">매물 필터 + 지도 표기</button>
+      <div class="legend">
+        <span><i class="dot" style="background:#16a34a"></i>통과</span>
+        <span><i class="dot" style="background:#f59e0b"></i>재검토</span>
+        <span><i class="dot" style="background:#9ca3af"></i>제외</span>
+      </div>
+    </header>
+    <div id="list"><div class="status-msg">매물을 붙여넣고 버튼을 누르세요.</div></div>
+  </div>
+  <div id="map"></div>
+</div>
+<script>
+var COLORS = {"통과":"#16a34a","재검토":"#f59e0b","제외":"#9ca3af","확인필요":"#6366f1"};
+var map = L.map('map').setView([37.4813,126.9527], 14);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+  maxZoom:20, attribution:'&copy; OpenStreetMap &copy; CARTO'
+}).addTo(map);
+var layer = L.layerGroup().addTo(map);
+var markers = {};
+
+function won(m){ return (m/10000).toFixed(2)+'억 ('+m.toLocaleString()+'만원)'; }
+function walkTxt(d){ return d.walk_min!=null ? (d.station+' 도보 '+d.walk_min+'분') : '도보 미확인'; }
+function popupHtml(d){
+  var r = d.reasons&&d.reasons.length ? '<div class="row" style="color:#b45309">확인: '+d.reasons.join(' / ')+'</div>':'';
+  return '<div><b>'+d.name+'</b><br>전세 '+won(d.deposit)+'<br>관리비 '+d.mgmt+'만원 · '+d.type+'('+d.form_raw+')<br>'
+    +walkTxt(d)+'<br>층 '+d.floor+'<br>보증보험 '+(d.deposit_ins?'가입가능':'미표기')+' · 버팀목 '+d.loan+r
+    +'<br><span style="color:#6b7280">'+d.address+'</span></div>';
+}
+
+function render(res){
+  layer.clearLayers(); markers = {};
+  var list = document.getElementById('list'); list.innerHTML='';
+  var shown = res.records.slice(); // 통과+재검토
+  var pts = [];
+  shown.forEach(function(d,i){
+    if(d.lat==null) return;
+    var color = COLORS[d.status]||'#9ca3af';
+    var icon = L.divIcon({className:'', iconSize:[24,24], iconAnchor:[12,24],
+      html:'<div class="marker-pin" style="background:'+color+'"><span>'+(i+1)+'</span></div>'});
+    var mk = L.marker([d.lat,d.lon],{icon:icon}).addTo(layer).bindPopup(popupHtml(d));
+    markers[i]=mk; pts.push([d.lat,d.lon]);
+  });
+  if(pts.length) map.fitBounds(pts,{padding:[40,40], maxZoom:16});
+
+  if(!shown.length){ list.innerHTML='<div class="status-msg">조건에 맞는 매물이 없습니다.</div>'; }
+  else {
+    var head=document.createElement('div'); head.className='sec';
+    head.textContent='조건 매물 '+shown.length+'건 (도보 한도 '+res.limit+'분)'; list.appendChild(head);
+  }
+  shown.forEach(function(d,i){
+    var r = d.reasons&&d.reasons.length ? '<div class="reason">확인: '+d.reasons.join(' / ')+'</div>':'';
+    var el=document.createElement('div'); el.className='card';
+    el.innerHTML='<div class="nm">'+(i+1)+'. '+d.name+' <span class="badge b-'+d.status+'">'+d.status+'</span></div>'
+      +'<div class="row">전세 '+won(d.deposit)+' · 관리비 '+d.mgmt+'만원</div>'
+      +'<div class="row">'+walkTxt(d)+' · '+d.type+' · '+d.floor+'</div>'
+      +'<div class="row">보증보험 '+(d.deposit_ins?'가입가능':'미표기')+' · 버팀목 '+d.loan+'</div>'+r;
+    el.onclick=function(){
+      document.querySelectorAll('.card').forEach(function(c){c.classList.remove('active');});
+      el.classList.add('active');
+      if(markers[i]){ map.setView([d.lat,d.lon],17); markers[i].openPopup(); }
+    };
+    list.appendChild(el);
+  });
+  if(res.excluded && res.excluded.length){
+    var h2=document.createElement('div'); h2.className='sec';
+    h2.textContent='제외 '+res.excluded.length+'건'; list.appendChild(h2);
+    res.excluded.forEach(function(d){
+      var el=document.createElement('div'); el.className='card';
+      el.innerHTML='<div class="nm" style="color:#6b7280">'+d.name+' <span class="badge b-제외">제외</span></div>'
+        +'<div class="row" style="color:#9ca3af">'+d.reason+'</div>';
+      list.appendChild(el);
+    });
+  }
+}
+
+function callProcess(text, btn){
+  var headers={'Content-Type':'application/json'};
+  var pw=localStorage.getItem('rf_pw'); if(pw) headers['X-Access']=pw;
+  return fetch('/api/process',{method:'POST',headers:headers,
+    body:JSON.stringify({text:text, params:{
+      deposit_max:+document.getElementById('dep').value,
+      mgmt_max:+document.getElementById('mgmt').value,
+      walk_limit:+document.getElementById('walk').value }})})
+  .then(function(r){
+    if(r.status===401){
+      var input=prompt('접속 비밀번호를 입력하세요');
+      if(input){ localStorage.setItem('rf_pw', input); return callProcess(text, btn); }
+      throw new Error('비밀번호 필요');
+    }
+    return r.json();
+  });
+}
+document.getElementById('run').onclick=function(){
+  var btn=this; var text=document.getElementById('input').value.trim();
+  if(!text){ alert('매물 목록을 붙여넣으세요.'); return; }
+  btn.disabled=true; btn.textContent='계산 중...';
+  callProcess(text, btn)
+  .then(function(res){ if(res && res.error){alert('오류: '+res.error);} else if(res){render(res);} })
+  .catch(function(e){ alert('요청 실패: '+e); })
+  .finally(function(){ btn.disabled=false; btn.textContent='매물 필터 + 지도 표기'; });
+};
+</script>
+</body>
+</html>
