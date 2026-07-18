@@ -14,9 +14,9 @@ Tmap Open API 단독 사용: 통합 지오코딩(fullAddrGeo) + 보행자 경로
 표준 라이브러리만 사용(설치 불필요).
 """
 import json
+import math
 import os
 import sys
-import time
 import urllib.parse
 import urllib.request
 
@@ -53,8 +53,22 @@ def load_config():
     return cfg
 
 
+_GEO_CACHE = {}   # addr -> (lat, lon)
+_WALK_CACHE = {}  # (lat5, lon5, station) -> (sec, dist)
+
+
+def _haversine_km(lat1, lon1, lat2, lon2):
+    r = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return r * 2 * math.asin(math.sqrt(a))
+
+
 def geocode(addr, app_key):
     """지번/도로명 주소 -> (lat, lon). 실패 시 None."""
+    if addr in _GEO_CACHE:
+        return _GEO_CACHE[addr], None
     params = urllib.parse.urlencode({
         "version": "1",
         "format": "json",
@@ -77,7 +91,9 @@ def geocode(addr, app_key):
     lon = c.get("newLon") or c.get("lon")
     if not lat or not lon:
         return None, "좌표 필드 없음"
-    return (float(lat), float(lon)), None
+    coord = (float(lat), float(lon))
+    _GEO_CACHE[addr] = coord
+    return coord, None
 
 
 def walk_time(from_lat, from_lon, to_lat, to_lon, app_key, start_name="매물", end_name="역"):
@@ -107,17 +123,24 @@ def walk_time(from_lat, from_lon, to_lat, to_lon, app_key, start_name="매물", 
     return None, None
 
 
-def nearest_station(coord, stations, app_key):
+def nearest_station(coord, stations, app_key, top_k=2):
+    """직선거리로 가까운 top_k개 역만 도보 경로 계산(호출 수 절감) + 결과 캐시."""
     lat, lon = coord
+    ranked = sorted(stations, key=lambda s: _haversine_km(lat, lon, s["lat"], s["lon"]))
     best = None
-    for st in stations:
-        sec, dist = walk_time(lat, lon, st["lat"], st["lon"], app_key,
-                              end_name=st["name"])
+    for st in ranked[:top_k]:
+        ck = (round(lat, 5), round(lon, 5), st["name"])
+        if ck in _WALK_CACHE:
+            sec, dist = _WALK_CACHE[ck]
+        else:
+            sec, dist = walk_time(lat, lon, st["lat"], st["lon"], app_key,
+                                  end_name=st["name"])
+            if sec is not None:
+                _WALK_CACHE[ck] = (sec, dist)
         if sec is None:
             continue
         if best is None or sec < best["sec"]:
             best = {"station": st["name"], "sec": sec, "dist": dist}
-        time.sleep(0.15)  # quota 예의
     return best
 
 
