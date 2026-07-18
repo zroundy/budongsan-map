@@ -1,0 +1,17 @@
+name: keep-alive
+
+# Render 무료 서버가 잠들지 않도록 5분마다 사이트를 깨운다.
+# GitHub Actions는 무료(공개 저장소). 스케줄은 GitHub 부하에 따라 다소 지연될 수 있다.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}   # Actions 탭에서 수동 실행도 가능
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render app
+        run: |
+          code=$(curl -sS -m 90 -o /dev/null -w "%{http_code}" https://budongsan-map.onrender.com/ || echo "000")
+          echo "ping status: $code"
