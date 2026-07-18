@@ -36,6 +36,13 @@
     border:2px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,.4); }
   .marker-pin span { transform:rotate(45deg); display:block; text-align:center; color:#fff; font-size:11px; font-weight:700; line-height:20px; }
   .status-msg { font-size:12px; color:#6b7280; padding:10px 14px; }
+  @media (max-width: 820px) {
+    html, body { height:auto; }
+    #wrap { flex-direction:column; height:auto; }
+    #side { width:100%; border-right:none; border-bottom:1px solid #e5e7eb; }
+    #list { flex:none; max-height:42vh; }
+    #map { width:100%; height:62vh; min-height:340px; }
+  }
 </style>
 </head>
 <body>
@@ -91,7 +98,7 @@ function render(res){
     var mk = L.marker([d.lat,d.lon],{icon:icon}).addTo(layer).bindPopup(popupHtml(d));
     markers[i]=mk; pts.push([d.lat,d.lon]);
   });
-  if(pts.length) map.fitBounds(pts,{padding:[40,40], maxZoom:16});
+  setTimeout(function(){ map.invalidateSize(); if(pts.length) map.fitBounds(pts,{padding:[40,40], maxZoom:16}); }, 100);
 
   if(!shown.length){ list.innerHTML='<div class="status-msg">조건에 맞는 매물이 없습니다.</div>'; }
   else {
@@ -124,32 +131,24 @@ function render(res){
   }
 }
 
-function callProcess(text, btn){
-  var headers={'Content-Type':'application/json'};
-  var pw=localStorage.getItem('rf_pw'); if(pw) headers['X-Access']=pw;
-  return fetch('/api/process',{method:'POST',headers:headers,
+function callProcess(text){
+  return fetch('/api/process',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({text:text, params:{
       deposit_max:+document.getElementById('dep').value,
       mgmt_max:+document.getElementById('mgmt').value,
       walk_limit:+document.getElementById('walk').value }})})
-  .then(function(r){
-    if(r.status===401){
-      var input=prompt('접속 비밀번호를 입력하세요');
-      if(input){ localStorage.setItem('rf_pw', input); return callProcess(text, btn); }
-      throw new Error('비밀번호 필요');
-    }
-    return r.json();
-  });
+  .then(function(r){return r.json();});
 }
 document.getElementById('run').onclick=function(){
   var btn=this; var text=document.getElementById('input').value.trim();
   if(!text){ alert('매물 목록을 붙여넣으세요.'); return; }
   btn.disabled=true; btn.textContent='계산 중...';
-  callProcess(text, btn)
+  callProcess(text)
   .then(function(res){ if(res && res.error){alert('오류: '+res.error);} else if(res){render(res);} })
   .catch(function(e){ alert('요청 실패: '+e); })
   .finally(function(){ btn.disabled=false; btn.textContent='매물 필터 + 지도 표기'; });
 };
+window.addEventListener('resize', function(){ map.invalidateSize(); });
 </script>
 </body>
 </html>

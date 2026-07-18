@@ -21,7 +21,6 @@ from parser import parse_text  # noqa: E402
 
 PORT = int(os.environ.get("PORT", 8765))
 HOST = os.environ.get("HOST", "127.0.0.1")
-APP_PASSWORD = os.environ.get("APP_PASSWORD", "")  # 설정 시 접속 비밀번호 요구
 INDEX = os.path.join(SKILL_DIR, "index.html")
 
 
@@ -109,9 +108,6 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path != "/api/process":
             self._send(404, "{}"); return
-        if APP_PASSWORD and self.headers.get("X-Access", "") != APP_PASSWORD:
-            self._send(401, json.dumps({"error": "비밀번호가 필요합니다."}, ensure_ascii=False))
-            return
         length = int(self.headers.get("Content-Length", 0))
         payload = json.loads(self.rfile.read(length) or b"{}")
         try:
