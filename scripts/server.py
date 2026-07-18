@@ -24,6 +24,15 @@ PORT = int(os.environ.get("PORT", 8765))
 HOST = os.environ.get("HOST", "127.0.0.1")
 INDEX = os.path.join(SKILL_DIR, "index.html")
 
+# 정적 파일 라우팅: 경로 -> (파일명, MIME)
+STATIC = {
+    "/": ("index.html", "text/html; charset=utf-8"),
+    "/index.html": ("index.html", "text/html; charset=utf-8"),
+    "/manifest.json": ("manifest.json", "application/manifest+json; charset=utf-8"),
+    "/sw.js": ("sw.js", "application/javascript; charset=utf-8"),
+    "/icon.svg": ("icon.svg", "image/svg+xml; charset=utf-8"),
+}
+
 
 # 정렬 기준지(회사 방향). 각 매물을 이 지점에서 가까운 순으로 나열.
 DEST = {"name": "선릉역", "lat": 37.50450, "lon": 127.04879}
@@ -119,9 +128,15 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        if self.path in ("/", "/index.html"):
-            with open(INDEX, "rb") as f:
-                self._send(200, f.read(), "text/html; charset=utf-8")
+        path = self.path.split("?", 1)[0]  # 공유 대상(GET ?text=...) 대응: 쿼리 제거
+        entry = STATIC.get(path)
+        if entry:
+            fname, ctype = entry
+            try:
+                with open(os.path.join(SKILL_DIR, fname), "rb") as f:
+                    self._send(200, f.read(), ctype)
+            except OSError:
+                self._send(404, "not found", "text/plain")
         else:
             self._send(404, "not found", "text/plain")
 

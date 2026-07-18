@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>내 조건 매물 지도</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#4f46e5">
+<link rel="apple-touch-icon" href="/icon.svg">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
@@ -165,6 +168,19 @@ document.getElementById('run').onclick=function(){
   .finally(function(){ btn.disabled=false; btn.textContent='매물 필터 + 지도 표기'; });
 };
 window.addEventListener('resize', function(){ map.invalidateSize(); });
+
+// PWA: 서비스워커 등록(홈 화면 추가 + 공유 대상 등록용)
+if('serviceWorker' in navigator){ navigator.serviceWorker.register('/sw.js').catch(function(){}); }
+
+// 카톡 등에서 공유로 들어온 텍스트(?text=...)를 자동으로 필터 실행
+(function(){
+  var shared = new URLSearchParams(location.search).get('text');
+  if(shared){
+    document.getElementById('input').value = shared;
+    history.replaceState(null, '', location.pathname);
+    document.getElementById('run').click();
+  }
+})();
 </script>
 </body>
 </html>
