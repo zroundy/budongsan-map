@@ -8,6 +8,7 @@
 브라우저: http://localhost:8765
 """
 import json
+import math
 import os
 import sys
 import webbrowser
@@ -22,6 +23,20 @@ from parser import parse_text  # noqa: E402
 PORT = int(os.environ.get("PORT", 8765))
 HOST = os.environ.get("HOST", "127.0.0.1")
 INDEX = os.path.join(SKILL_DIR, "index.html")
+
+
+# 정렬 기준지(회사 방향). 각 매물을 이 지점에서 가까운 순으로 나열.
+DEST = {"name": "선릉역", "lat": 37.50450, "lon": 127.04879}
+STATUS_ORDER = {"통과": 0, "재검토": 1, "확인필요": 2}
+
+
+def haversine_km(lat1, lon1, lat2, lon2):
+    r = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return round(r * 2 * math.asin(math.sqrt(a)), 2)
 
 
 def status_of(walk_min, limit, band, review_reason):
@@ -76,14 +91,19 @@ def process(text, params, cfg):
                 station, walk_min = nb["station"], round(nb["sec"] / 60, 1)
         review = "층 표기 모순 → 반지하 여부 확인" if r["floor_conflict"] else ""
         st, reasons = status_of(walk_min, limit, band, review)
+        dest_km = haversine_km(lat, lon, DEST["lat"], DEST["lon"]) if lat else None
         rec = {**base, "lat": lat, "lon": lon, "station": station,
-               "walk_min": walk_min, "status": st, "reasons": reasons}
+               "walk_min": walk_min, "status": st, "reasons": reasons,
+               "dest_name": DEST["name"], "dest_km": dest_km}
         if st == "제외":
             excluded.append({**base, "reason": reasons[0] if reasons else "도보 초과"})
         else:
             records.append(rec)
+    # 통과 → 재검토 순, 각 그룹 내에서는 선릉역에서 가까운 순(직선거리 오름차순)
+    records.sort(key=lambda x: (STATUS_ORDER.get(x["status"], 3),
+                                x["dest_km"] if x["dest_km"] is not None else 9999))
     return {"records": records, "excluded": excluded,
-            "limit": limit, "band": band}
+            "limit": limit, "band": band, "dest_name": DEST["name"]}
 
 
 class Handler(BaseHTTPRequestHandler):

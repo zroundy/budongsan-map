@@ -80,8 +80,9 @@ function won(m){ return (m/10000).toFixed(2)+'억 ('+m.toLocaleString()+'만원)
 function walkTxt(d){ return d.walk_min!=null ? (d.station+' 도보 '+d.walk_min+'분') : '도보 미확인'; }
 function popupHtml(d){
   var r = d.reasons&&d.reasons.length ? '<div class="row" style="color:#b45309">확인: '+d.reasons.join(' / ')+'</div>':'';
+  var dest = d.dest_km!=null ? '<br>'+(d.dest_name||'선릉역')+'까지 약 '+d.dest_km+'km' : '';
   return '<div><b>'+d.name+'</b><br>전세 '+won(d.deposit)+'<br>관리비 '+d.mgmt+'만원 · '+d.type+'('+d.form_raw+')<br>'
-    +walkTxt(d)+'<br>층 '+d.floor+'<br>보증보험 '+(d.deposit_ins?'가입가능':'미표기')+' · 버팀목 '+d.loan+r
+    +walkTxt(d)+dest+'<br>층 '+d.floor+'<br>보증보험 '+(d.deposit_ins?'가입가능':'미표기')+' · 버팀목 '+d.loan+r
     +'<br><span style="color:#6b7280">'+d.address+'</span></div>';
 }
 
@@ -100,17 +101,23 @@ function render(res){
   });
   setTimeout(function(){ map.invalidateSize(); if(pts.length) map.fitBounds(pts,{padding:[40,40], maxZoom:16}); }, 100);
 
-  if(!shown.length){ list.innerHTML='<div class="status-msg">조건에 맞는 매물이 없습니다.</div>'; }
-  else {
-    var head=document.createElement('div'); head.className='sec';
-    head.textContent='조건 매물 '+shown.length+'건 (도보 한도 '+res.limit+'분)'; list.appendChild(head);
-  }
+  if(!shown.length){ list.innerHTML='<div class="status-msg">조건에 맞는 매물이 없습니다.</div>'; return; }
+  var destName = res.dest_name || '선릉역';
+  var lastStatus = null;
   shown.forEach(function(d,i){
+    if(d.status !== lastStatus){
+      lastStatus = d.status;
+      var cnt = shown.filter(function(x){return x.status===d.status;}).length;
+      var h=document.createElement('div'); h.className='sec';
+      h.textContent=d.status+' '+cnt+'건 ('+destName+' 가까운 순)'; list.appendChild(h);
+    }
+    var destTxt = d.dest_km!=null ? (destName+'까지 약 '+d.dest_km+'km') : '';
     var r = d.reasons&&d.reasons.length ? '<div class="reason">확인: '+d.reasons.join(' / ')+'</div>':'';
     var el=document.createElement('div'); el.className='card';
     el.innerHTML='<div class="nm">'+(i+1)+'. '+d.name+' <span class="badge b-'+d.status+'">'+d.status+'</span></div>'
       +'<div class="row">전세 '+won(d.deposit)+' · 관리비 '+d.mgmt+'만원</div>'
       +'<div class="row">'+walkTxt(d)+' · '+d.type+' · '+d.floor+'</div>'
+      +(destTxt?'<div class="row" style="color:#4f46e5">'+destTxt+'</div>':'')
       +'<div class="row">보증보험 '+(d.deposit_ins?'가입가능':'미표기')+' · 버팀목 '+d.loan+'</div>'+r;
     el.onclick=function(){
       document.querySelectorAll('.card').forEach(function(c){c.classList.remove('active');});
@@ -119,16 +126,6 @@ function render(res){
     };
     list.appendChild(el);
   });
-  if(res.excluded && res.excluded.length){
-    var h2=document.createElement('div'); h2.className='sec';
-    h2.textContent='제외 '+res.excluded.length+'건'; list.appendChild(h2);
-    res.excluded.forEach(function(d){
-      var el=document.createElement('div'); el.className='card';
-      el.innerHTML='<div class="nm" style="color:#6b7280">'+d.name+' <span class="badge b-제외">제외</span></div>'
-        +'<div class="row" style="color:#9ca3af">'+d.reason+'</div>';
-      list.appendChild(el);
-    });
-  }
 }
 
 function callProcess(text){
