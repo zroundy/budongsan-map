@@ -1,0 +1,36 @@
+name: daily-notify
+
+# 매일 오전 10시, 오후 7시(KST) 판다 매물 조건 필터 -> 텔레그램 알림
+on:
+  schedule:
+    - cron: "0 1 * * *"    # 01:00 UTC = 10:00 KST
+    - cron: "0 10 * * *"   # 10:00 UTC = 19:00 KST
+  workflow_dispatch: {}    # Actions 탭에서 수동 실행
+
+permissions:
+  contents: write          # digest.json 커밋용
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run notifier
+        env:
+          TMAP_APP_KEY: ${{ secrets.TMAP_APP_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          export RUN_DATE=$(TZ=Asia/Seoul date +%F)
+          echo "실행 날짜(KST): $RUN_DATE"
+          python scripts/daily_notify.py
+      - name: Commit digest state
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add digest.json || true
+          git commit -m "chore: update digest [skip ci]" || echo "변경 없음"
+          git push || echo "push 생략"
