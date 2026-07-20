@@ -23,6 +23,13 @@
   .filters input { width:72px; padding:4px 6px; border:1px solid #d1d5db; border-radius:5px; font-size:12px; }
   button { width:100%; padding:9px; background:#4f46e5; color:#fff; border:0; border-radius:6px; font-size:13px; font-weight:700; cursor:pointer; }
   button:disabled { background:#9ca3af; }
+  .btnrow { display:flex; gap:6px; margin-top:6px; }
+  .btn2 { flex:1; padding:7px; background:#eef2ff; color:#4f46e5; border:1px solid #c7d2fe; border-radius:6px; font-size:12px; font-weight:700; cursor:pointer; }
+  .hist-item { padding:10px 14px; border-bottom:1px solid #eee; cursor:pointer; }
+  .hist-item:hover { background:#f3f4f6; }
+  .hist-item .t { font-size:12px; font-weight:700; }
+  .hist-item .s { font-size:11px; color:#6b7280; margin-top:2px; }
+  .hist-del { float:right; color:#ef4444; font-size:11px; }
   .legend { display:flex; gap:10px; margin-top:8px; font-size:11px; }
   .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:4px; vertical-align:middle; }
   #list { flex:1; overflow-y:auto; }
@@ -62,6 +69,10 @@
         <label>도보 한도(분)<input id="walk" type="number" value="15"></label>
       </div>
       <button id="run">매물 필터 + 지도 표기</button>
+      <div class="btnrow">
+        <button class="btn2" id="paste">복사한 매물 불러오기</button>
+        <button class="btn2" id="hist">최근 조회</button>
+      </div>
       <div class="legend">
         <span><i class="dot" style="background:#16a34a"></i>통과</span>
         <span><i class="dot" style="background:#f59e0b"></i>재검토</span>
@@ -108,7 +119,8 @@ function popupHtml(d){
     +'<br><span style="color:#6b7280">'+d.address+'</span></div>';
 }
 
-function render(res){
+function render(res, fromHistory){
+  if(!fromHistory) saveHistory(res);
   layer.clearLayers(); markers = {};
   var list = document.getElementById('list'); list.innerHTML='';
   var shown = res.records.slice(); // 통과+재검토
@@ -167,6 +179,61 @@ document.getElementById('run').onclick=function(){
   .catch(function(e){ alert('요청 실패: '+e); })
   .finally(function(){ btn.disabled=false; btn.textContent='매물 필터 + 지도 표기'; });
 };
+// 조회 기록(기기 저장) --------------------------------------------------
+var HKEY='rf_history';
+function loadHist(){ try{ return JSON.parse(localStorage.getItem(HKEY)||'[]'); }catch(e){ return []; } }
+function saveHistory(res){
+  if(!res || !res.records) return;
+  var h=loadHist();
+  var pass=res.records.filter(function(x){return x.status==='통과';}).length;
+  var rev=res.records.filter(function(x){return x.status==='재검토';}).length;
+  h.unshift({ ts:new Date().toISOString(), pass:pass, rev:rev,
+    dest_name:res.dest_name, limit:res.limit, records:res.records });
+  if(h.length>30) h=h.slice(0,30);
+  try{ localStorage.setItem(HKEY, JSON.stringify(h)); }catch(e){}
+}
+function fmtTs(iso){
+  var d=new Date(iso);
+  var p=function(n){return (n<10?'0':'')+n;};
+  return (d.getMonth()+1)+'/'+d.getDate()+' '+p(d.getHours())+':'+p(d.getMinutes());
+}
+function showHistory(){
+  var h=loadHist();
+  var list=document.getElementById('list'); list.innerHTML='';
+  var head=document.createElement('div'); head.className='sec';
+  head.textContent='최근 조회 '+h.length+'건 (탭하면 지도에 다시 표시)'; list.appendChild(head);
+  if(!h.length){ var m=document.createElement('div'); m.className='status-msg'; m.textContent='저장된 조회 기록이 없습니다.'; list.appendChild(m); return; }
+  h.forEach(function(item, idx){
+    var el=document.createElement('div'); el.className='hist-item';
+    el.innerHTML='<span class="hist-del" data-i="'+idx+'">삭제</span>'
+      +'<div class="t">'+fmtTs(item.ts)+'</div>'
+      +'<div class="s">통과 '+item.pass+' · 재검토 '+item.rev+' · 도보 '+(item.limit||15)+'분</div>';
+    el.onclick=function(ev){
+      if(ev.target.classList.contains('hist-del')){
+        ev.stopPropagation();
+        var hh=loadHist(); hh.splice(idx,1); localStorage.setItem(HKEY, JSON.stringify(hh)); showHistory(); return;
+      }
+      render({records:item.records, dest_name:item.dest_name, limit:item.limit}, true);
+    };
+    list.appendChild(el);
+  });
+}
+document.getElementById('hist').onclick=showHistory;
+
+// 복사한 매물 불러오기(클립보드 -> 자동 필터). 공유 시트 대신 안정적.
+document.getElementById('paste').onclick=function(){
+  if(!navigator.clipboard || !navigator.clipboard.readText){
+    alert('이 브라우저는 클립보드 읽기를 지원하지 않습니다. 위 칸에 직접 붙여넣어 주세요.'); return;
+  }
+  navigator.clipboard.readText().then(function(t){
+    if(!t || !t.trim()){ alert('클립보드가 비어 있습니다. 카톡에서 매물 글을 먼저 복사하세요.'); return; }
+    document.getElementById('input').value=t;
+    document.getElementById('run').click();
+  }).catch(function(){
+    alert('클립보드 읽기 권한이 필요합니다. 위 칸에 직접 붙여넣거나, 권한을 허용해 주세요.');
+  });
+};
+
 window.addEventListener('resize', function(){ map.invalidateSize(); });
 
 // PWA: 서비스워커 등록(홈 화면 추가 + 공유 대상 등록용)
